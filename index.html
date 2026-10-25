@@ -174,6 +174,20 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .stepper input::-webkit-inner-spin-button,.stepper input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 input[type="time"]{-webkit-appearance:none;appearance:none}
 
+[hidden]{display:none!important}
+.ghost:disabled{opacity:.5}
+.qty{color:var(--mute);font-weight:400}
+.scan{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.scan .ghost{height:46px;font-size:15px}
+.stg{display:flex;flex-direction:column;margin:-2px 0 0}
+.stg:empty{display:none}
+.srow{display:flex;align-items:center;border-bottom:1px solid var(--line);animation:rise .3s ease both}
+.srow>button:first-child{flex:1;min-width:0;display:flex;justify-content:space-between;gap:10px;align-items:center;min-height:48px;background:none;border:0;padding:8px 2px;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+.srow>button:first-child>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow small{color:var(--mute);font-size:12px;white-space:nowrap}
+.srow .x{flex:none;width:44px;height:44px;border:0;background:none;color:var(--mute);font:300 24px/1 system-ui,sans-serif;cursor:pointer}
+.lnk{color:var(--fg);text-decoration:underline}
+
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
@@ -196,6 +210,8 @@ input[type="time"]{-webkit-appearance:none;appearance:none}
 <p class="foot" id="foot"></p>
 
 <button class="fab" id="fab" type="button" aria-label="Добавить"><span>+</span>Добавить</button>
+<input type="file" id="cam" accept="image/*" capture="environment" hidden>
+<input type="file" id="gal" accept="image/*" hidden>
 <div class="toast" id="toast" role="status"></div>
 <div class="scrim" id="scrim"></div>
 <section class="sheet" id="sheet" aria-hidden="true">
@@ -206,6 +222,7 @@ input[type="time"]{-webkit-appearance:none;appearance:none}
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
 <script>
 const KEY = 'svezhest-v1';
 const DAY = 864e5, HOUR = 36e5, C = 2 * Math.PI * 20;
@@ -281,7 +298,8 @@ let joined = [], meta = {}, names = {};
 const isShared = () => mode !== 'local';
 const curItems = () => isShared() ? shared.items : data.items;
 let filter = 'all';
-let animateId = null;
+let animateIds = new Set();
+let stage = [], scanning = false;
 let currentId = null;
 
 const $ = s => document.querySelector(s);
@@ -327,7 +345,7 @@ function row(it, i, now){
     ? `${PLACE[it.place] || 'Продукт'} · до ${fmtDate(it.end)}`
     : `Блюдо · с ${fmtDate(it.start)}`) + by;
   return `
-  <button class="item${it.id === animateId ? ' enter' : ''}" data-id="${it.id}" style="--c:var(--${st});animation-delay:${Math.min(i, 8) * 40}ms">
+  <button class="item${animateIds.has(it.id) ? ' enter' : ''}" data-id="${it.id}" style="--c:var(--${st});animation-delay:${Math.min(i, 8) * 40}ms">
     <span class="ring">
       <svg viewBox="0 0 52 52" aria-hidden="true">
         <circle class="bg" cx="26" cy="26" r="20"/>
@@ -336,7 +354,7 @@ function row(it, i, now){
       <b>${center}</b>
     </span>
     <span class="meta">
-      <span class="name">${esc(it.name)}</span>
+      <span class="name">${esc(it.name)}${it.qty > 1 ? ' <span class="qty">×' + it.qty + '</span>' : ''}</span>
       <span class="info"><span class="st ${st}">${leftText(r)}</span> · ${esc(info)}</span>
     </span>
   </button>`;
@@ -368,24 +386,50 @@ function render(){
   ].filter(Boolean).join(' · ');
   $('#chipName').textContent = isShared() ? (meta[mode] && meta[mode].name || 'Общий холодильник') : 'Мой холодильник';
   $('#fab').hidden = readOnly;
-  animateId = null;
+  animateIds = new Set();
 }
 
-async function add(item){
+const endOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).getTime();
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+async function addMany(list){
+  const clean = list.map(it => ({
+    kind: it.kind, name: it.name, place: it.place || null,
+    start: it.start, end: it.end, qty: Math.min(99, Math.max(1, Math.round(it.qty) || 1))
+  }));
+  if(!clean.length) return;
   if(isShared()){
     try{
-      const ref = db.collection(`fridges/${mode}/items`).doc();
-      animateId = ref.id;
+      const batch = db.batch();
+      clean.forEach(it => {
+        const ref = db.collection(`fridges/${mode}/items`).doc();
+        animateIds.add(ref.id);
+        batch.set(ref, { ...it, by: uid, done: null });
+      });
       closeSheet();
-      await ref.set({ kind:item.kind, name:item.name, place:item.place || null, start:item.start, end:item.end, by:uid, done:null });
-    }catch(e){ animateId = null; fail(e); }
+      await batch.commit();
+    }catch(e){ animateIds = new Set(); fail(e); }
     return;
   }
-  item.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  data.items.push(item);
-  animateId = item.id;
+  clean.forEach(it => { it.id = newId(); data.items.push(it); animateIds.add(it.id); });
   save();
   closeSheet();
+  render();
+}
+const add = item => addMany([item]);
+
+async function eatOne(id){
+  const it = curItems().find(i => i.id === id);
+  if(!it) return;
+  const q = it.qty || 1;
+  if(q <= 1){ removeItem(id, 'eat'); return; }
+  closeSheet();
+  if(isShared()){
+    try{ await db.doc(`fridges/${mode}/items/${id}`).update({ qty: q - 1 }); }catch(e){ fail(e); }
+    return;
+  }
+  it.qty = q - 1;
+  save();
   render();
 }
 
@@ -412,6 +456,7 @@ function openSheet(html){
   sheet.setAttribute('aria-hidden', 'false');
 }
 function closeSheet(){
+  stage = [];
   sheet.classList.remove('open'); scrim.classList.remove('open');
   sheet.setAttribute('aria-hidden', 'true');
 }
@@ -497,7 +542,7 @@ function mountDate(el, o){
     pickDate(addDays(today, o.chips[+c.dataset.c].days));
   };
   paint(false);
-  return { get: () => sel };
+  return { get: () => sel, set: d => { sel = sod(d); view = new Date(sel.getFullYear(), sel.getMonth(), 1); paint(false); } };
 }
 
 function showForm(t){
@@ -507,33 +552,81 @@ function showForm(t){
     let place = 'fridge';
     f.innerHTML = `
       <form id="pf" class="form">
+        <div class="scan" id="scan">
+          <button type="button" class="ghost" data-sc="cam">Снять фото</button>
+          <button type="button" class="ghost" data-sc="gal">Из галереи</button>
+        </div>
+        <div id="stg" class="stg"></div>
         <div class="field"><label for="pn">Название</label>
-          <input id="pn" maxlength="40" required placeholder="Молоко, сыр, йогурт" autocomplete="off"></div>
+          <input id="pn" maxlength="40" placeholder="Молоко, сыр, йогурт" autocomplete="off"></div>
         <div class="field"><label>Срок годности до</label><div class="dp" id="pdp"></div></div>
+        <div class="field"><label for="pq">Количество, шт.</label>
+          <div class="stepper" id="qst">
+            <button type="button" data-q="-1" aria-label="Меньше">−</button>
+            <input id="pq" type="number" inputmode="numeric" min="1" max="99" step="1" value="1">
+            <button type="button" data-q="1" aria-label="Больше">+</button>
+          </div></div>
         <div class="field"><label>Где хранится</label>
           <div class="seg" id="pseg">
             <button type="button" data-p="fridge" class="on">Холодильник</button>
             <button type="button" data-p="freezer">Морозилка</button>
             <button type="button" data-p="shelf">Полка</button>
           </div></div>
-        <button class="primary">Добавить</button>
+        <button class="primary" id="psave">Добавить</button>
+        <button type="button" class="ghost" id="pmore">Добавить ещё один</button>
       </form>`;
+    const pn = $('#pn'), pq = $('#pq');
     const dp = mountDate($('#pdp'), {
       value: null, placeholder: 'Выберите дату',
       chips: [{label:'Завтра', days:1}, {label:'+3 дня', days:3}, {label:'+ неделя', days:7}, {label:'+2 недели', days:14}, {label:'+ месяц', days:30}]
     });
-    $('#pseg').onclick = e => {
-      const b = e.target.closest('[data-p]'); if(!b) return;
-      place = b.dataset.p;
-      document.querySelectorAll('#pseg button').forEach(x => x.classList.toggle('on', x === b));
+    const setPlace = p => {
+      place = p;
+      document.querySelectorAll('#pseg button').forEach(x => x.classList.toggle('on', x.dataset.p === p));
+    };
+    $('#pseg').onclick = e => { const b = e.target.closest('[data-p]'); if(b) setPlace(b.dataset.p); };
+    $('#qst').onclick = e => {
+      const b = e.target.closest('[data-q]'); if(!b) return;
+      pq.value = Math.min(99, Math.max(1, (parseInt(pq.value) || 1) + (+b.dataset.q)));
+    };
+    const takeForm = () => {
+      const name = pn.value.trim(), d = dp.get();
+      if(!name) return null;
+      if(!d){ toast('Выберите срок годности'); return null; }
+      return { kind:'product', name, place, qty: Math.min(99, Math.max(1, parseInt(pq.value) || 1)), start: Date.now(), end: endOfDay(d) };
     };
     $('#pf').onsubmit = e => {
       e.preventDefault();
-      const name = $('#pn').value.trim(), d = dp.get();
-      if(!name) return;
-      if(!d){ toast('Выберите срок годности'); return; }
-      add({ kind:'product', name, place, start:Date.now(), end:new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).getTime() });
+      const list = stage.slice();
+      if(pn.value.trim()){ const it = takeForm(); if(!it) return; list.push(it); }
+      if(!list.length){ toast('Введите название продукта'); return; }
+      addMany(list);
     };
+    $('#pmore').onclick = () => {
+      if(!pn.value.trim()){ toast('Введите название продукта'); return; }
+      const it = takeForm(); if(!it) return;
+      stage.push(it);
+      pn.value = ''; pq.value = 1;
+      paintStage();
+      pn.focus();
+    };
+    $('#stg').onclick = e => {
+      const x = e.target.closest('[data-sx]');
+      if(x){ stage.splice(+x.dataset.sx, 1); paintStage(); return; }
+      const r = e.target.closest('[data-si]'); if(!r) return;
+      const i = +r.dataset.si, it = stage[i];
+      if(!it || it.kind !== 'product') return;
+      if(pn.value.trim()){ toast('Сначала добавьте то, что вводите сейчас'); return; }
+      stage.splice(i, 1);
+      pn.value = it.name; pq.value = it.qty || 1; setPlace(it.place || 'fridge'); dp.set(new Date(it.end));
+      paintStage();
+    };
+    $('#scan').onclick = e => {
+      const b = e.target.closest('[data-sc]'); if(!b || scanning) return;
+      $(b.dataset.sc === 'cam' ? '#cam' : '#gal').click();
+    };
+    pn.oninput = paintSave;
+    paintStage(); paintScan();
   } else {
     f.innerHTML = `
       <form id="df" class="form">
@@ -605,14 +698,15 @@ function openItem(id){
   const it = curItems().find(i => i.id === id);
   if(!it || (isShared() && !canWrite)) return;
   currentId = id;
+  const qty = it.qty || 1;
   const line = it.kind === 'product'
     ? `${PLACE[it.place] || 'Продукт'} · срок до ${fmtDate(it.end)}`
     : `Приготовлено ${fmtDate(it.start)} · срок до ${fmtDate(it.end)}`;
   openSheet(`
     <h2 class="sh">${esc(it.name)}</h2>
-    <p class="hint">${esc(line)}</p>
+    <p class="hint">${esc(line + (qty > 1 ? ' · ' + qty + ' шт.' : ''))}</p>
     <div class="actions">
-      <button class="primary" data-a="eat">Съели</button>
+      <button class="primary" data-a="eat">${qty > 1 ? 'Съели всё' : 'Съели'}</button>${qty > 1 ? '<button class="ghost" data-a="eat1">Съели одну</button>' : ''}
       <button class="ghost" data-a="bin">Выбросить</button>
       <button class="ghost" data-a="close">Отмена</button>
     </div>`);
@@ -671,7 +765,8 @@ function openFridges(){
   joined.forEach(c => { list += mk(c, meta[c] && meta[c].name || 'Общий холодильник', c, mode === c); });
   const hint = db
     ? 'Вы вошли' + (authName ? ' как ' + esc(authName) : '') + '. В общем холодильнике все участники видят одни и те же продукты.'
-    : 'Чтобы делиться холодильником, войдите через Google. Свои продукты пока хранятся только на этом устройстве.';
+    : 'Чтобы делиться холодильником и получать уведомления, войдите через Google. Свои продукты пока хранятся только на этом устройстве.';
+  const pushOn = !!lsGet(PUSH_KEY) && 'Notification' in window && Notification.permission === 'granted';
   openSheet(`
     <h2 class="sh">Холодильники</h2>
     <p class="hint">${hint}</p>
@@ -681,6 +776,10 @@ function openFridges(){
         ? '<button class="primary" data-s="create">Создать общий</button><button class="ghost" data-s="join">Войти по коду</button>'
         : '<button class="primary" data-s="login">Войти через Google</button>'}
       ${db && isShared() ? '<button class="ghost" data-s="invite">Пригласить</button><button class="ghost" data-s="leave">Выйти из этого холодильника</button>' : ''}
+      ${db ? (pushOn
+        ? '<button class="ghost" data-s="pushoff">Отключить уведомления</button>'
+        : '<button class="ghost" data-s="pushon">Включить уведомления</button>') : ''}
+      <button class="ghost" data-s="ai">Распознавание по фото</button>
       ${db ? '<button class="ghost" data-s="logout">Выйти из аккаунта</button>' : ''}
       ${installEv ? '<button class="ghost" data-s="install">Установить приложение</button>' : ''}
     </div>`);
@@ -706,7 +805,7 @@ function showCreate(){
       await db.doc(`fridges/${code}`).set({ name, owner: uid, created: Date.now() });
       if($('#cm') && $('#cm').checked){
         for(const it of data.items){
-          await db.collection(`fridges/${code}/items`).doc().set({ kind:it.kind, name:it.name, place:it.place || null, start:it.start, end:it.end, by:uid, done:null });
+          await db.collection(`fridges/${code}/items`).doc().set({ kind:it.kind, name:it.name, place:it.place || null, start:it.start, end:it.end, qty:it.qty || 1, by:uid, done:null });
         }
         data.items = []; save();
       }
@@ -784,11 +883,13 @@ function shareAction(s){
   else if(s === 'back') openFridges();
   else if(s === 'login') signIn();
   else if(s === 'logout') signOutUser();
+  else if(s === 'ai') showAiSettings('fridges');
+  else if(s === 'pushon') enablePush();
+  else if(s === 'pushoff') disablePush();
   else if(s === 'install' && installEv){ const e = installEv; installEv = null; closeSheet(); e.prompt(); }
 }
 
 /* ---------- Firebase: общие холодильники ---------- */
-/* ВСТАВЬТЕ СЮДА СВОЙ КОНФИГ: Firebase Console → Project settings → Your apps → Web */
 const FB_CONFIG = {
   apiKey: "AIzaSyAeTJ3jgdO4iw_Xeh5sSduedlzkvyrFWKE",
   authDomain: "product-3ec43.firebaseapp.com",
@@ -874,6 +975,257 @@ async function onAuth(u){
   try{ last = localStorage.getItem(ACTIVE_KEY); }catch(e){}
   if(last && last !== 'local' && joined.includes(last)) switchTo(last);
   render();
+  refreshPush();
+}
+
+/* ---------- stage: список «к добавлению» ---------- */
+function paintSave(){
+  const b = $('#psave'), n = $('#pn');
+  if(!b || !n) return;
+  const cnt = stage.length + (n.value.trim() ? 1 : 0);
+  b.textContent = cnt > 1 ? `Сохранить всё (${cnt})` : 'Добавить';
+}
+function paintStage(){
+  const el = $('#stg');
+  if(!el) return;
+  el.innerHTML = stage.map((it, i) => `
+    <div class="srow">
+      <button type="button" data-si="${i}">
+        <span>${esc(it.name)}${it.qty > 1 ? ' <span class="qty">×' + it.qty + '</span>' : ''}${it.unsure ? ' ?' : ''}</span>
+        <small>${it.kind === 'dish' ? 'блюдо · ' : ''}${it.approx ? '≈ ' : ''}до ${fmtDate(it.end)}</small>
+      </button>
+      <button type="button" class="x" data-sx="${i}" aria-label="Убрать">×</button>
+    </div>`).join('');
+  paintSave();
+}
+function paintScan(){
+  document.querySelectorAll('#scan button').forEach(b => {
+    b.disabled = scanning;
+    b.textContent = scanning ? 'Распознаю…' : (b.dataset.sc === 'cam' ? 'Снять фото' : 'Из галереи');
+  });
+}
+
+/* ---------- распознавание по фото (Gemini, ключ хранится только на этом устройстве) ---------- */
+const AI_KEY = 'svezhest-ai-key', AI_MODEL = 'svezhest-ai-model';
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-flash-lite-latest', 'gemini-flash-latest'];
+const lsGet = k => { try{ return localStorage.getItem(k) || ''; }catch(e){ return ''; } };
+const lsSet = (k, v) => { try{ if(v) localStorage.setItem(k, v); else localStorage.removeItem(k); }catch(e){} };
+
+function showAiSettings(from){
+  const key = lsGet(AI_KEY), model = lsGet(AI_MODEL) || DEFAULT_MODEL;
+  openSheet(`
+    <h2 class="sh">Распознавание по фото</h2>
+    <p class="hint">Фото анализирует Gemini от Google. Нужен бесплатный ключ: откройте
+      <a class="lnk" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>,
+      нажмите «Create API key» и вставьте его сюда. Ключ хранится только на этом устройстве.
+      По условиям бесплатного тарифа Google вправе использовать отправленные фото для улучшения своих сервисов.</p>
+    <form id="kf" class="form" style="margin-top:14px">
+      <div class="field"><label for="kk">Ключ Gemini API</label>
+        <input id="kk" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza…" value="${esc(key)}"></div>
+      <div class="field"><label for="km">Модель</label>
+        <input id="km" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(model)}"></div>
+      <button class="primary">Сохранить</button>
+      ${key ? '<button type="button" class="ghost" id="kd">Удалить ключ</button>' : ''}
+      <button type="button" class="ghost" id="kb">Назад</button>
+    </form>`);
+  const back = () => from === 'add' ? openAdd('product') : openFridges();
+  $('#kf').onsubmit = e => {
+    e.preventDefault();
+    lsSet(AI_KEY, $('#kk').value.trim());
+    const m = $('#km').value.trim();
+    lsSet(AI_MODEL, m && m !== DEFAULT_MODEL ? m : '');
+    toast('Сохранено');
+    back();
+  };
+  if($('#kd')) $('#kd').onclick = () => { lsSet(AI_KEY, ''); toast('Ключ удалён'); back(); };
+  $('#kb').onclick = back;
+}
+
+function fileToJpeg(file, max = 1280){
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * k));
+      c.height = Math.max(1, Math.round(img.height * k));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', 0.82).split(',')[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('image')); };
+    img.src = url;
+  });
+}
+
+function localDate(){
+  const t = new Date();
+  return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+}
+function aiPrompt(){
+  return `Ты помогаешь вести учёт продуктов в холодильнике. На фото еда: продукты и/или готовые блюда.
+Определи КАЖДЫЙ отдельный продукт по его реальному внешнему виду: что это за продукт на самом деле (вид, сорт, форма, состояние), а не только по надписи на упаковке.
+Если на упаковке видна марка, жирность, вкус или вес, коротко добавь это в название (например «Молоко 2,5%», «Йогурт клубничный», «Сыр моцарелла»). Если упаковки нет, определи по виду (например «Помидоры черри», «Куриные бёдра сырые»).
+Одинаковые штуки объединяй в одну запись и укажи их число в count.
+Если на упаковке чётко виден срок годности, верни его в expiry в формате YYYY-MM-DD, иначе null. Не угадывай дату, которой не видно.
+shelf_days: сколько целых суток считая от сегодняшнего дня этот продукт ещё можно хранить в месте place с учётом видимого состояния (зрелость, увядание, признаки порчи сокращают срок).
+place: fridge, freezer или shelf, где его обычно хранят.
+kind: product для сырых и упакованных продуктов, dish для приготовленных блюд.
+uncertain: true, если ты не уверен, что это за продукт.
+Игнорируй не-еду, посуду, людей и фон. Не придумывай то, чего нет на фото.
+Сегодня ${localDate()}.
+Ответь ТОЛЬКО JSON-массивом без пояснений: [{"name":"…","kind":"product","place":"fridge","count":1,"expiry":null,"shelf_days":7,"uncertain":false}]`;
+}
+
+function parseAi(text){
+  let arr;
+  try{ arr = JSON.parse(text); }
+  catch(e){
+    const m = String(text).match(/\[[\s\S]*\]/);
+    if(!m) return [];
+    try{ arr = JSON.parse(m[0]); }catch(e2){ return []; }
+  }
+  if(arr && !Array.isArray(arr)) arr = arr.items || arr.products || [];
+  return Array.isArray(arr) ? arr : [];
+}
+
+function toStage(a){
+  if(!a || typeof a !== 'object') return null;
+  const nowMs = Date.now(), today = sod(new Date());
+  const name = String(a.name || '').trim().slice(0, 40);
+  if(!name) return null;
+  const kind = a.kind === 'dish' ? 'dish' : 'product';
+  const qty = Math.min(99, Math.max(1, Math.round(Number(a.count)) || 1));
+  const unsure = a.uncertain === true;
+  let days = Number(a.shelf_days);
+  if(!(days > 0)) days = kind === 'dish' ? 3 : 7;
+  days = Math.min(kind === 'dish' ? 14 : 730, Math.max(kind === 'dish' ? 0.5 : 1, days));
+  if(kind === 'dish') return { kind, name, place: null, qty, start: nowMs, end: nowMs + days * DAY, approx: true, unsure };
+  const place = ['fridge', 'freezer', 'shelf'].includes(a.place) ? a.place : 'fridge';
+  let exp = null;
+  if(typeof a.expiry === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.expiry)){
+    const [y, m, d] = a.expiry.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    if(dt >= addDays(today, -30) && dt <= addDays(today, 1095)) exp = dt;
+  }
+  const end = exp ? endOfDay(exp) : endOfDay(addDays(today, Math.ceil(days)));
+  return { kind, name, place, qty, start: nowMs, end, approx: !exp, unsure };
+}
+
+async function recognize(b64, key){
+  const first = lsGet(AI_MODEL) || DEFAULT_MODEL;
+  const models = [first, ...FALLBACK_MODELS.filter(m => m !== first)];
+  let missing = false;
+  for(const m of models){
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: aiPrompt() }, { inline_data: { mime_type: 'image/jpeg', data: b64 } }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
+      })
+    });
+    if(r.status === 404){ missing = true; continue; }
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok){
+      const err = new Error((j.error && j.error.message) || 'api');
+      err.status = r.status;
+      throw err;
+    }
+    const parts = ((j.candidates || [])[0] || {}).content;
+    const text = ((parts && parts.parts) || []).filter(p => !p.thought).map(p => p.text || '').join('');
+    return parseAi(text).map(toStage).filter(Boolean).slice(0, 20);
+  }
+  const err = new Error(missing ? 'model' : 'api');
+  err.code = 'model';
+  throw err;
+}
+
+function aiErrText(e){
+  const s = e && e.status, m = String(e && e.message || '');
+  if(e && e.code === 'model') return 'Модель недоступна. Поменяйте её в настройках распознавания.';
+  if(s === 400 && /API key/i.test(m)) return 'Ключ Gemini не подошёл. Проверьте его в настройках.';
+  if(s === 401 || s === 403) return 'Ключ Gemini не подошёл или у него нет доступа.';
+  if(s === 429) return 'Лимит бесплатных запросов исчерпан. Попробуйте позже.';
+  if(e instanceof TypeError) return 'Нет сети или запрос заблокирован.';
+  return 'Не удалось распознать. Попробуйте ещё раз.';
+}
+
+async function scanFile(file){
+  if(!file) return;
+  const key = lsGet(AI_KEY);
+  if(!key){ showAiSettings('add'); toast('Сначала вставьте ключ Gemini'); return; }
+  scanning = true; paintScan();
+  try{
+    const b64 = await fileToJpeg(file);
+    const found = await recognize(b64, key);
+    if(!$('#stg')) return;               // окно закрыли, пока шло распознавание
+    if(!found.length) toast('Еды на фото не нашлось. Попробуйте ближе и при хорошем свете.');
+    else { found.forEach(it => stage.push(it)); toast('Найдено: ' + found.length + '. Проверьте и сохраните.'); }
+  }catch(e){
+    console.error(e);
+    toast(aiErrText(e));
+  }
+  scanning = false; paintScan(); paintStage();
+}
+
+/* ---------- push-уведомления ---------- */
+const VAPID_KEY = "BDI8OytB86b46tRDYx8kU9hT5XjOh6WEpEv3Fq2rJpK17Hpn858k8e0PmjBWXzyCHhPy7SGox6bmmbCruBm5IEc"; //[cite: 1]
+const PUSH_KEY = 'svezhest-push';
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const myTz = () => { try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }catch(e){ return 'UTC'; } };
+
+async function pushSupported(){
+  try{
+    if(!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+    if(typeof firebase === 'undefined' || typeof firebase.messaging !== 'function') return false;
+    return !!(await Promise.resolve(firebase.messaging.isSupported()));
+  }catch(e){ return false; }
+}
+async function pushToken(){
+  const reg = await navigator.serviceWorker.ready;
+  return firebase.messaging().getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+}
+async function savePushToken(token, old){
+  const ref = db.doc(`pushTokens/${uid}`), FV = firebase.firestore.FieldValue;
+  if(old && old !== token) await ref.set({ tokens: FV.arrayRemove(old) }, { merge: true });
+  await ref.set({ tokens: FV.arrayUnion(token), tz: myTz(), updated: Date.now() }, { merge: true });
+}
+async function enablePush(){
+  if(!db){ toast('Сначала войдите через Google'); return; }
+  if(String(VAPID_KEY).startsWith('ВСТАВЬТЕ')){ toast('Не задан VAPID_KEY в index.html'); return; }
+  if(isIOS && !isStandalone()){ toast('На iPhone сначала установите приложение: Поделиться → На экран «Домой»'); return; }
+  if(!('Notification' in window) || typeof firebase.messaging !== 'function'){ toast('Это устройство не поддерживает уведомления'); return; }
+  try{
+    const perm = await Notification.requestPermission();   // вызываем сразу по нажатию, иначе Safari откажет
+    if(perm !== 'granted'){ toast('Уведомления запрещены в настройках браузера'); return; }
+    if(!(await pushSupported())){ toast('Это устройство не поддерживает уведомления'); return; }
+    const token = await pushToken();
+    if(!token){ toast('Не удалось получить токен уведомлений'); return; }
+    await savePushToken(token, lsGet(PUSH_KEY));
+    lsSet(PUSH_KEY, token);
+    closeSheet();
+    toast('Уведомления включены');
+  }catch(e){ console.error(e); toast('Не удалось включить уведомления'); }
+}
+async function disablePush(){
+  const old = lsGet(PUSH_KEY);
+  try{ if(typeof firebase.messaging === 'function') await firebase.messaging().deleteToken(); }catch(e){}
+  try{ if(db && old) await db.doc(`pushTokens/${uid}`).set({ tokens: firebase.firestore.FieldValue.arrayRemove(old) }, { merge: true }); }catch(e){}
+  lsSet(PUSH_KEY, '');
+  closeSheet();
+  toast('Уведомления отключены');
+}
+async function refreshPush(){
+  try{
+    const old = lsGet(PUSH_KEY);
+    if(!old || !db || !('Notification' in window) || Notification.permission !== 'granted') return;
+    if(!(await pushSupported())) return;
+    const token = await pushToken();
+    if(token){ await savePushToken(token, old); lsSet(PUSH_KEY, token); }
+  }catch(e){}
 }
 
 /* ---------- wiring ---------- */
@@ -891,6 +1243,7 @@ $('#seg').onclick = e => {
 $('#sheetBody').onclick = e => {
   const a = e.target.dataset.a;
   if(a === 'close') closeSheet();
+  else if(a === 'eat1') eatOne(currentId);
   else if(a === 'eat' || a === 'bin') removeItem(currentId, a === 'eat' ? 'eat' : 'bin');
   const sw = e.target.closest('[data-sw]');
   if(sw){ closeSheet(); if(sw.dataset.sw !== mode) switchTo(sw.dataset.sw); return; }
@@ -898,6 +1251,11 @@ $('#sheetBody').onclick = e => {
   if(s) shareAction(s.dataset.s);
 };
 $('#chip').onclick = openFridges;
+$('#cam').onchange = $('#gal').onchange = e => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  scanFile(f);
+};
 document.addEventListener('visibilitychange', () => { if(!document.hidden) render(); });
 
 render();
@@ -910,12 +1268,6 @@ document.addEventListener('wheel', e => { if(e.ctrlKey) e.preventDefault(); }, {
 document.addEventListener('keydown', e => {
   if((e.ctrlKey || e.metaKey) && ['+','-','=','0'].includes(e.key)) e.preventDefault();
 });
-let lastTap = 0;
-document.addEventListener('touchend', e => {
-  const t = Date.now();
-  if(t - lastTap < 300 && !inField(e)) e.preventDefault();
-  lastTap = t;
-}, { passive:false });
 document.addEventListener('contextmenu', e => { if(!inField(e)) e.preventDefault(); });
 document.addEventListener('selectstart', e => { if(!inField(e)) e.preventDefault(); });
 document.addEventListener('copy', e => { if(!inField(e)) e.preventDefault(); });
