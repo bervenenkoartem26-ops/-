@@ -1,7 +1,7 @@
 /* Service worker: оболочка приложения работает без сети.
    Данные Firestore сюда не попадают: их кэширует сам Firebase (enablePersistence).
    Выложили новую версию index.html — поменяйте номер в CACHE. */
-const CACHE = 'svezhest-v2';
+const CACHE = 'svezhest-v3';
 const SHELL = [
   './',
   'index.html',
@@ -60,6 +60,35 @@ self.addEventListener('fetch', e => {
         })
         .catch(() => hit);
       return hit || net;
+    })
+  );
+});
+
+/* ---------- Push-уведомления (Firebase Cloud Messaging) ---------- */
+self.addEventListener('push', e => {
+  let d = {};
+  try {
+    const j = e.data && e.data.json();
+    d = (j && (j.data || j.notification)) || j || {};
+  } catch (_) {}
+  const title = d.title || 'Трекер свежести';
+  e.waitUntil(
+    self.registration.showNotification(title, {
+      body: d.body || '',
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      tag: 'expiry',
+      renotify: true
+    })
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      for (const c of list) { if ('focus' in c) return c.focus(); }
+      return self.clients.openWindow('./');
     })
   );
 });
