@@ -141,6 +141,10 @@ body::after{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(110px 
 .err{color:var(--bad);font-size:13px;margin:0}
 .toast{position:fixed;z-index:40;left:50%;bottom:max(96px,calc(env(safe-area-inset-bottom,0px) + 90px));transform:translate(-50%,12px);background:var(--accent);color:var(--acc-fg);padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;max-width:calc(100% - 32px);text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.act{display:flex;align-items:center;gap:12px;width:max-content;padding:6px 6px 6px 16px}
+.toast.act.show{pointer-events:auto}
+.toast button{flex:none;border:0;border-radius:999px;height:32px;padding:0 14px;background:var(--acc-fg);color:var(--accent);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.toast button:active{opacity:.8}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--mute);outline-offset:2px}
 
 .dp{display:flex;flex-direction:column}
@@ -285,7 +289,145 @@ const DISHES = [
   ['Омлет', 1, 'омлет яичница яйца'],
   ['Оладьи', 1, 'оладьи'],
   ['Куриное карри', 3, 'карри курица'],
-  ['Ризотто', 2, 'ризотто рис грибной']
+  ['Ризотто', 2, 'ризотто рис грибной'],
+  // дополнено
+  ['Окрошка', 1, 'окрошка квас кефир суп холодный'],
+  ['Свекольник / холодный борщ', 2, 'свекольник холодный борщ суп'],
+  ['Гаспачо', 2, 'гаспачо суп холодный томатный'],
+  ['Рассольник', 4, 'рассольник суп огурцы'],
+  ['Харчо', 3, 'харчо суп грузинский'],
+  ['Грибной суп', 3, 'грибной суп грибы'],
+  ['Томатный суп', 3, 'томатный суп помидоры'],
+  ['Чечевичный суп', 4, 'чечевица чечевичный суп'],
+  ['Суп с фрикадельками', 3, 'суп фрикадельки'],
+  ['Лагман / шурпа', 3, 'лагман шурпа суп лапша баранина'],
+  ['Бефстроганов', 3, 'бефстроганов говядина мясо сметана'],
+  ['Жаркое', 3, 'жаркое мясо картошка'],
+  ['Тушёная говядина / свинина', 4, 'тушеное мясо говядина свинина'],
+  ['Запечённая свинина / мясной рулет', 4, 'свинина запеченная рулет мясной'],
+  ['Отбивные / шницель', 3, 'отбивные шницель свинина курица'],
+  ['Мясо по-французски', 3, 'мясо французски запеканка'],
+  ['Куриные грудки / филе варёное', 3, 'курица грудка филе вареное'],
+  ['Куриные ножки / крылья жареные', 3, 'курица ножки крылья жареные'],
+  ['Наггетсы домашние', 3, 'наггетсы курица панировка'],
+  ['Кордон блю', 3, 'кордон блю курица шницель'],
+  ['Свиные рёбрышки', 3, 'ребра ребрышки свинина'],
+  ['Колбаски / сосиски жареные', 3, 'колбаски сосиски жареные'],
+  ['Печень жареная / тушёная', 2, 'печень печенка жареная тушеная'],
+  ['Печёночные оладьи', 2, 'печеночные оладьи печень'],
+  ['Манты / хинкали варёные', 2, 'манты хинкали'],
+  ['Долма', 3, 'долма виноградные листья'],
+  ['Ленивые голубцы / ёжики', 3, 'ленивые голубцы ежики'],
+  ['Рыба тушёная с овощами', 2, 'рыба тушеная овощи треска минтай'],
+  ['Лосось / форель запечённые', 2, 'лосось форель семга запеченная'],
+  ['Рыба в кляре', 2, 'рыба кляр'],
+  ['Сельдь маринованная домашняя', 5, 'сельдь селедка маринованная'],
+  ['Суши / роллы', 1, 'суши роллы сашими рис'],
+  ['Пшённая каша', 3, 'пшенка пшенная каша'],
+  ['Овсяная каша', 3, 'овсянка овсяная каша'],
+  ['Перловая каша', 4, 'перловка перловая каша'],
+  ['Манная / молочная каша', 2, 'манка манная молочная каша'],
+  ['Булгур / кускус', 3, 'булгур кускус'],
+  ['Чечевица / нут / фасоль варёные', 4, 'чечевица нут фасоль горох вареные'],
+  ['Жареная картошка', 3, 'картошка жареная картофель'],
+  ['Драники / картофельные зразы', 2, 'драники картофельные зразы оладьи'],
+  ['Кабачковые оладьи', 2, 'кабачки кабачковые оладьи'],
+  ['Макароны по-флотски', 3, 'макароны флотски фарш'],
+  ['Паста болоньезе', 3, 'паста болоньезе спагетти мясной соус'],
+  ['Паста карбонара / со сливочным соусом', 2, 'паста карбонара сливочный соус'],
+  ['Лапша вок / удон', 3, 'лапша вок удон соба'],
+  ['Лазанья', 4, 'лазанья'],
+  ['Жареный рис', 2, 'рис жареный'],
+  ['Рататуй', 4, 'рататуй овощи'],
+  ['Фаршированные кабачки / баклажаны', 3, 'кабачки баклажаны фаршированные'],
+  ['Овощная запеканка', 3, 'овощная запеканка'],
+  ['Картофельная / мясная запеканка', 3, 'запеканка картофельная мясная'],
+  ['Шакшука', 1, 'шакшука яйца помидоры'],
+  ['Яйца варёные вкрутую', 7, 'яйца вареные вкрутую'],
+  ['Яичные маффины / киш', 3, 'яичные маффины киш лорен'],
+  ['Салат из свежих овощей без заправки', 1, 'салат овощной свежий огурцы помидоры'],
+  ['Салат из свежих овощей с заправкой', 0.5, 'салат овощной свежий заправка масло сметана'],
+  ['Капустный салат / коулслоу', 2, 'салат капустный коулслоу капуста'],
+  ['Морковь по-корейски', 5, 'морковь корейски'],
+  ['Салат из варёных овощей', 2, 'салат вареные овощи свекла'],
+  ['Салат с яйцом / тунцом', 2, 'салат яйцо тунец консервы'],
+  ['Хумус домашний', 4, 'хумус нут'],
+  ['Гуакамоле', 1, 'гуакамоле авокадо'],
+  ['Кекс / маффины', 3, 'кекс маффины капкейки'],
+  ['Чизкейк', 4, 'чизкейк'],
+  ['Тирамису / десерт с маскарпоне', 2, 'тирамису маскарпоне десерт'],
+  ['Панна котта / пудинг', 3, 'панна котта пудинг'],
+  ['Желе', 4, 'желе'],
+  ['Пирожки печёные (капуста, картошка)', 3, 'пирожки капуста картошка печеные'],
+  ['Пирожки жареные', 2, 'пирожки жареные'],
+  ['Хачапури / лепёшки с сыром', 2, 'хачапури лепешки сыр'],
+  ['Беляши / чебуреки', 1, 'беляши чебуреки'],
+  ['Шаурма / ролл с мясом', 1, 'шаурма ролл лаваш'],
+  ['Бутерброды / сэндвичи', 1, 'бутерброды бутерброд сэндвич'],
+  ['Бургер домашний', 1, 'бургер гамбургер'],
+  ['Компот / морс / кисель', 3, 'компот морс кисель напиток'],
+  ['Смузи', 1, 'смузи коктейль'],
+  ['Соус бешамель / сливочный', 3, 'соус бешамель сливочный'],
+  ['Соус томатный домашний', 5, 'соус томатный домашний'],
+  ['Тесто дрожжевое', 2, 'тесто дрожжевое']
+];
+
+// Справочник вскрытых продуктов: [название, срок хранения после вскрытия в сутках, слова для поиска]
+// Ориентир для холодильника. Если на упаковке указан другой срок, он важнее.
+const OPENED = [
+  ['Молоко пастеризованное / UHT (вскрытое)', 3, 'молоко пастеризованное ультрапастеризованное пакет'],
+  ['Молоко растительное (овсяное, соевое, миндальное)', 4, 'молоко растительное овсяное соевое миндальное'],
+  ['Кефир / ряженка / простокваша', 3, 'кефир ряженка простокваша варенец'],
+  ['Йогурт (баночка, стаканчик)', 2, 'йогурт'],
+  ['Питьевой йогурт', 3, 'йогурт питьевой'],
+  ['Сметана', 5, 'сметана'],
+  ['Сливки', 3, 'сливки'],
+  ['Творог', 2, 'творог'],
+  ['Творожная масса / сырок', 3, 'творожная масса сырок глазированный'],
+  ['Масло сливочное', 30, 'масло сливочное'],
+  ['Маргарин / спред', 30, 'маргарин спред'],
+  ['Сыр твёрдый (кусок)', 14, 'сыр твердый кусок пармезан гауда российский голландский'],
+  ['Сыр нарезка (вакуумная упаковка)', 5, 'сыр нарезка ломтики'],
+  ['Сыр плавленый', 7, 'сыр плавленый'],
+  ['Сыр мягкий (бри, камамбер)', 5, 'сыр мягкий бри камамбер'],
+  ['Моцарелла в рассоле', 3, 'моцарелла рассол сыр'],
+  ['Творожный сыр (филадельфия, маскарпоне)', 7, 'сыр творожный филадельфия маскарпоне рикотта'],
+  ['Брынза / фета', 7, 'брынза фета сыр'],
+  ['Сок пакетированный', 4, 'сок пакет нектар'],
+  ['Сок свежевыжатый', 1, 'сок свежевыжатый фреш'],
+  ['Квас', 2, 'квас'],
+  ['Майонез', 30, 'майонез'],
+  ['Кетчуп', 60, 'кетчуп'],
+  ['Горчица', 60, 'горчица'],
+  ['Хрен / аджика', 30, 'хрен аджика'],
+  ['Соевый соус', 90, 'соус соевый'],
+  ['Томатный соус для пасты', 5, 'соус томатный паста болоньезе'],
+  ['Сырные и сливочные соусы', 5, 'соус сырный сливочный'],
+  ['Песто', 7, 'песто соус базилик'],
+  ['Томатная паста (банка)', 7, 'томатная паста томатное пюре'],
+  ['Варенье / джем', 30, 'варенье джем конфитюр повидло'],
+  ['Сгущённое молоко', 7, 'сгущенка сгущенное молоко'],
+  ['Консервы мясные / рыбные (банка)', 2, 'консервы тушенка рыбные шпроты сайра килька тунец сардины'],
+  ['Консервированные овощи (горошек, кукуруза, фасоль)', 3, 'горошек кукуруза фасоль консервированные'],
+  ['Консервированные фрукты (ананасы, персики)', 3, 'ананасы персики консервированные фрукты компот'],
+  ['Грибы консервированные / маринованные', 5, 'грибы шампиньоны консервированные маринованные'],
+  ['Маслины / оливки', 14, 'маслины оливки'],
+  ['Огурцы, помидоры маринованные', 30, 'огурцы помидоры маринованные соленые'],
+  ['Колбаса варёная (нарезанная)', 3, 'колбаса вареная докторская нарезка'],
+  ['Колбаса сырокопчёная / сыровяленая', 14, 'колбаса сырокопченая салями сыровяленая'],
+  ['Сосиски / сардельки (вскрытая упаковка)', 3, 'сосиски сардельки'],
+  ['Ветчина / бекон (нарезка)', 3, 'ветчина бекон карбонад нарезка'],
+  ['Паштет (вскрытая банка)', 3, 'паштет'],
+  ['Рыба слабосолёная / копчёная (вакуум)', 3, 'рыба слабосоленая копченая селедка семга вакуум'],
+  ['Красная икра', 4, 'икра красная'],
+  ['Сельдь в масле / пресервы', 3, 'сельдь селедка пресервы'],
+  ['Тофу', 4, 'тофу'],
+  ['Хумус / готовые дипы', 5, 'хумус гуакамоле дип'],
+  ['Готовое тесто (слоёное, дрожжевое)', 2, 'тесто слоеное дрожжевое'],
+  ['Нарезанные фрукты и овощи', 2, 'арбуз дыня авокадо нарезанные фрукты овощи лимон'],
+  ['Детское пюре (баночка)', 2, 'пюре детское баночка'],
+  ['Масло льняное / ореховое', 30, 'масло льняное ореховое нерафинированное'],
+  ['Вино (открытая бутылка)', 5, 'вино']
 ];
 
 let data = load();
@@ -342,7 +484,7 @@ function row(it, i, now){
   const center = r <= 0 ? '0' : r < DAY ? Math.max(1, Math.round(r / HOUR)) + 'ч' : Math.ceil(r / DAY);
   const by = isShared() && names[it.by] ? ' · ' + names[it.by] : '';
   const info = (it.kind === 'product'
-    ? `${PLACE[it.place] || 'Продукт'} · до ${fmtDate(it.end)}`
+    ? `${PLACE[it.place] || 'Продукт'} · до ${fmtDate(it.end)}${it.opened ? ' · вскрыто' : ''}`
     : `Блюдо · с ${fmtDate(it.start)}`) + by;
   return `
   <button class="item${animateIds.has(it.id) ? ' enter' : ''}" data-id="${it.id}" style="--c:var(--${st});animation-delay:${Math.min(i, 8) * 40}ms">
@@ -418,34 +560,61 @@ async function addMany(list){
 }
 const add = item => addMany([item]);
 
+const shortName = s => s.length > 26 ? s.slice(0, 25) + '…' : s;
+
+// Тихое обновление записи: локально или в общем холодильнике m
+async function patchItem(id, patch, m = mode){
+  if(m !== 'local'){
+    if(!db) return false;
+    try{ await db.doc(`fridges/${m}/items/${id}`).update(patch); return true; }
+    catch(e){ fail(e); return false; }
+  }
+  const it = data.items.find(i => i.id === id);
+  if(!it) return false;
+  Object.assign(it, patch);
+  save();
+  render();
+  return true;
+}
+
 async function eatOne(id){
   const it = curItems().find(i => i.id === id);
   if(!it) return;
   const q = it.qty || 1;
   if(q <= 1){ removeItem(id, 'eat'); return; }
+  const m = mode;
   closeSheet();
-  if(isShared()){
-    try{ await db.doc(`fridges/${mode}/items/${id}`).update({ qty: q - 1 }); }catch(e){ fail(e); }
-    return;
+  if(await patchItem(id, { qty: q - 1 }, m)){
+    toast('Съедена одна: ' + shortName(it.name), { label: 'Отменить', fn: () => patchItem(id, { qty: q }, m) });
   }
-  it.qty = q - 1;
-  save();
-  render();
 }
 
 async function removeItem(id, how){
-  if(isShared()){
+  const it = curItems().find(i => i.id === id);
+  if(!it) return;
+  const m = mode, eat = how === 'eat';
+  const msg = (eat ? 'Съедено: ' : 'Выброшено: ') + shortName(it.name);
+  if(m === 'local'){
+    const idx = data.items.indexOf(it);
+    data.items.splice(idx, 1);
+    if(eat) data.eaten++; else data.thrown++;
+    save();
     closeSheet();
-    try{
-      await db.doc(`fridges/${mode}/items/${id}`).update({ done: how === 'eat' ? 'eat' : 'bin', doneAt: Date.now(), doneBy: uid });
-    }catch(e){ fail(e); }
+    render();
+    toast(msg, { label: 'Отменить', fn: () => {
+      data.items.splice(Math.min(idx, data.items.length), 0, it);
+      if(eat) data.eaten--; else data.thrown--;
+      animateIds.add(it.id);
+      save();
+      render();
+    }});
     return;
   }
-  data.items = data.items.filter(i => i.id !== id);
-  if(how === 'eat') data.eaten++; else data.thrown++;
-  save();
   closeSheet();
-  render();
+  const FV = firebase.firestore.FieldValue;
+  if(await patchItem(id, { done: eat ? 'eat' : 'bin', doneAt: Date.now(), doneBy: uid }, m)){
+    toast(msg, { label: 'Отменить', fn: () => patchItem(id, { done: null, doneAt: FV.delete(), doneBy: FV.delete() }, m) });
+  }
 }
 
 /* ---------- sheet ---------- */
@@ -629,7 +798,7 @@ function showForm(t){
     paintStage(); paintScan();
   } else {
     f.innerHTML = `
-      <form id="df" class="form">
+      <form id="df" class="form" novalidate>
         <div class="field"><label for="dn">Какое блюдо</label>
           <input id="dn" maxlength="60" required placeholder="Например, куриный суп" autocomplete="off"></div>
         <div id="sugg" class="sugg"></div>
@@ -675,7 +844,8 @@ function showForm(t){
       const [hh, mm] = ($('#dt').value || '00:00').split(':').map(Number);
       let start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm).getTime();
       if(start > Date.now()) start = Date.now();
-      if(!name || !(days > 0)) return;
+      if(!name){ toast('Введите название блюда'); return; }
+      if(!(days > 0)){ toast('Укажите срок хранения больше нуля'); return; }
       add({ kind:'dish', name, start, end: start + days * DAY });
     };
   }
@@ -684,9 +854,9 @@ function showForm(t){
 function norm(s){
   return s.toLowerCase().replace(/ё/g, 'е').replace(/[^а-яa-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
-function match(q){
-  const nq = norm(q), words = nq.split(' ').filter(Boolean);
-  return DISHES.map(d => {
+function match(q, list = DISHES){
+  const nq = norm(q), words = nq.split(' ').filter(w => w.length > 1);
+  return list.map(d => {
     const name = norm(d[0]), tokens = norm(d[0] + ' ' + d[2]).split(' ');
     let s = name.includes(nq) ? 5 : 0;
     words.forEach(w => { if(tokens.some(t => t.startsWith(w))) s += 2; });
@@ -700,24 +870,141 @@ function openItem(id){
   currentId = id;
   const qty = it.qty || 1;
   const line = it.kind === 'product'
-    ? `${PLACE[it.place] || 'Продукт'} · срок до ${fmtDate(it.end)}`
+    ? `${PLACE[it.place] || 'Продукт'} · срок до ${fmtDate(it.end)}${it.opened ? ' · вскрыто ' + fmtDate(it.opened) : ''}`
     : `Приготовлено ${fmtDate(it.start)} · срок до ${fmtDate(it.end)}`;
   openSheet(`
     <h2 class="sh">${esc(it.name)}</h2>
     <p class="hint">${esc(line + (qty > 1 ? ' · ' + qty + ' шт.' : ''))}</p>
     <div class="actions">
       <button class="primary" data-a="eat">${qty > 1 ? 'Съели всё' : 'Съели'}</button>${qty > 1 ? '<button class="ghost" data-a="eat1">Съели одну</button>' : ''}
+      ${it.kind === 'product' && !it.opened ? '<button class="ghost" data-a="open">Открыть</button>' : ''}
+      <button class="ghost" data-a="edit">Изменить</button>
       <button class="ghost" data-a="bin">Выбросить</button>
       <button class="ghost" data-a="close">Отмена</button>
     </div>`);
 }
 
+const EDIT_CHIPS = [{label:'Завтра', days:1}, {label:'+3 дня', days:3}, {label:'+ неделя', days:7}, {label:'+2 недели', days:14}, {label:'+ месяц', days:30}];
+
+function openEdit(id){
+  const it = curItems().find(i => i.id === id);
+  if(!it) return;
+  currentId = id;
+  const prod = it.kind === 'product';
+  let place = it.place || 'fridge';
+  openSheet(`
+    <h2 class="sh">Изменить</h2>
+    <form id="ef" class="form" style="margin-top:14px" novalidate>
+      <div class="field"><label for="en">Название</label>
+        <input id="en" maxlength="${prod ? 40 : 60}" autocomplete="off" value="${esc(it.name)}"></div>
+      <div class="field"><label>Срок годности до</label><div class="dp" id="edp"></div></div>
+      <div class="field"><label for="eq">Количество, шт.</label>
+        <div class="stepper" id="eqst">
+          <button type="button" data-q="-1" aria-label="Меньше">−</button>
+          <input id="eq" type="number" inputmode="numeric" min="1" max="99" step="1" value="${it.qty || 1}">
+          <button type="button" data-q="1" aria-label="Больше">+</button>
+        </div></div>
+      ${prod ? `<div class="field"><label>Где хранится</label>
+        <div class="seg" id="eseg">
+          <button type="button" data-p="fridge">Холодильник</button>
+          <button type="button" data-p="freezer">Морозилка</button>
+          <button type="button" data-p="shelf">Полка</button>
+        </div></div>` : ''}
+      <button class="primary">Сохранить</button>
+      <button type="button" class="ghost" data-a="back">Назад</button>
+    </form>`);
+  const dp = mountDate($('#edp'), { value: new Date(it.end), placeholder: 'Выберите дату', chips: EDIT_CHIPS });
+  const eq = $('#eq');
+  $('#eqst').onclick = e => {
+    const b = e.target.closest('[data-q]'); if(!b) return;
+    eq.value = Math.min(99, Math.max(1, (parseInt(eq.value) || 1) + (+b.dataset.q)));
+  };
+  const setPlace = p => {
+    place = p;
+    document.querySelectorAll('#eseg button').forEach(x => x.classList.toggle('on', x.dataset.p === p));
+  };
+  if(prod){
+    setPlace(place);
+    $('#eseg').onclick = e => { const b = e.target.closest('[data-p]'); if(b) setPlace(b.dataset.p); };
+  }
+  $('#ef').onsubmit = async e => {
+    e.preventDefault();
+    const name = $('#en').value.trim();
+    if(!name){ toast('Введите название'); return; }
+    const d = dp.get();
+    if(!d){ toast('Выберите срок годности'); return; }
+    const patch = {
+      name,
+      qty: Math.min(99, Math.max(1, parseInt(eq.value) || 1)),
+      end: sameDay(d, new Date(it.end)) ? it.end : endOfDay(d)
+    };
+    if(prod) patch.place = place;
+    closeSheet();
+    if(await patchItem(id, patch)) toast('Сохранено');
+  };
+}
+
+function openOpen(id){
+  const it = curItems().find(i => i.id === id);
+  if(!it || it.kind !== 'product') return;
+  currentId = id;
+  const m = match(it.name, OPENED).slice(0, 4);
+  const def = m.length ? m[0][1] : 3;
+  openSheet(`
+    <h2 class="sh">Открыть упаковку</h2>
+    <p class="hint">${esc(it.name)}. После вскрытия срок короче. Он считается от сегодняшнего дня и не станет длиннее прежнего.</p>
+    <form id="of" class="form" style="margin-top:14px" novalidate>
+      ${m.length ? `<div class="sugg" id="osg">${m.map(d => `<button type="button" data-d="${d[1]}"><span>${esc(d[0])}</span><small>${fmtShelf(d[1])}</small></button>`).join('')}</div>` : ''}
+      <div class="field"><label for="od">Хранить после вскрытия, дней</label>
+        <div class="stepper" id="ost">
+          <button type="button" data-st="-1" aria-label="Меньше">−</button>
+          <input id="od" type="number" inputmode="numeric" min="1" max="365" step="1" value="${def}">
+          <button type="button" data-st="1" aria-label="Больше">+</button>
+        </div></div>
+      <p class="hint">${m.length ? 'Выберите подходящую строку или поправьте число.' : 'Этого продукта нет в справочнике, стоит оценка в 3 дня.'} Если на упаковке указан срок после вскрытия, введите его.</p>
+      <button class="primary">Открыть</button>
+      <button type="button" class="ghost" data-a="back">Назад</button>
+    </form>`);
+  const od = $('#od');
+  $('#ost').onclick = e => {
+    const b = e.target.closest('[data-st]'); if(!b) return;
+    od.value = Math.min(365, Math.max(1, (parseInt(od.value) || 1) + (+b.dataset.st)));
+  };
+  if($('#osg')) $('#osg').onclick = e => {
+    const b = e.target.closest('button'); if(!b) return;
+    od.value = b.dataset.d;
+  };
+  $('#of').onsubmit = async e => {
+    e.preventDefault();
+    const days = Math.min(365, Math.max(1, parseInt(od.value) || 1));
+    const now = Date.now();
+    const cand = endOfDay(addDays(sod(new Date()), days));
+    const end = Math.min(it.end, cand);
+    const prev = { start: it.start, end: it.end, opened: it.opened || null };
+    const mk = mode;
+    closeSheet();
+    if(await patchItem(id, { start: now, end, opened: now }, mk)){
+      if(end === it.end) toast('Срок не изменился: упаковка и так истекает раньше');
+      else toast('Вскрыто. Срок теперь до ' + fmtDate(end), { label: 'Отменить', fn: () => patchItem(id, prev, mk) });
+    }
+  };
+}
+
 /* ---------- общие холодильники ---------- */
-function toast(msg){
+function toast(msg, act){
   const t = $('#toast');
-  t.textContent = msg; t.classList.add('show');
+  t.textContent = msg;
+  t.classList.toggle('act', !!act);
+  if(act){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = act.label;
+    b.onclick = () => { clearTimeout(toast.t); t.classList.remove('show'); act.fn(); };
+    t.appendChild(b);
+  }
+  t.classList.add('show');
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => t.classList.remove('show'), 3400);
+  toast.t = setTimeout(() => t.classList.remove('show'), act ? 7000 : 3400);
 }
 function fail(e){
   const c = e && e.code;
@@ -1171,7 +1458,7 @@ async function scanFile(file){
 }
 
 /* ---------- push-уведомления ---------- */
-const VAPID_KEY = "BDI8OytB86b46tRDYx8kU9hT5XjOh6WEpEv3Fq2rJpK17Hpn858k8e0PmjBWXzyCHhPy7SGox6bmmbCruBm5IEc"; //[cite: 1]
+const VAPID_KEY = "BDI8OytB86b46tRDYx8kU9hT5XjOh6WEpEv3Fq2rJpK17Hpn858k8e0PmjBWXzyCHhPy7SGox6bmmbCruBm5IEc";
 const PUSH_KEY = 'svezhest-push';
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isStandalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
@@ -1244,6 +1531,9 @@ $('#sheetBody').onclick = e => {
   const a = e.target.dataset.a;
   if(a === 'close') closeSheet();
   else if(a === 'eat1') eatOne(currentId);
+  else if(a === 'edit') openEdit(currentId);
+  else if(a === 'open') openOpen(currentId);
+  else if(a === 'back') openItem(currentId);
   else if(a === 'eat' || a === 'bin') removeItem(currentId, a === 'eat' ? 'eat' : 'bin');
   const sw = e.target.closest('[data-sw]');
   if(sw){ closeSheet(); if(sw.dataset.sw !== mode) switchTo(sw.dataset.sw); return; }
