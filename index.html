@@ -69,7 +69,7 @@ h1{font-size:34px;font-weight:600;letter-spacing:-.03em;line-height:1.1;margin:0
   display:flex;align-items:center;gap:14px;width:100%;
   background:var(--card);border:1px solid var(--line);border-radius:22px;padding:14px 16px 14px 14px;
   color:inherit;font:inherit;text-align:left;cursor:pointer;
-  transition:transform .15s ease;
+  transition:transform .15s ease,translate .25s ease;touch-action:pan-y;
   --c:var(--ok);
 }
 .item:active{transform:scale(.985)}
@@ -145,6 +145,26 @@ body::after{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(110px 
 .toast.act.show{pointer-events:auto}
 .toast button{flex:none;border:0;border-radius:999px;height:32px;padding:0 14px;background:var(--acc-fg);color:var(--accent);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
 .toast button:active{opacity:.8}
+
+/* свайпы и уход строки */
+.sw{display:grid;grid-template-rows:1fr;transition:grid-template-rows .26s cubic-bezier(.2,.7,.2,1) .12s,opacity .26s ease .12s,margin .26s cubic-bezier(.2,.7,.2,1) .12s}
+.swin{position:relative;min-height:0;overflow:hidden;border-radius:22px}
+.swbg{position:absolute;inset:0;display:flex;align-items:center;padding:0 22px;border-radius:22px;color:var(--bg);font-weight:500;font-size:15px;opacity:0;pointer-events:none;transition:opacity .15s}
+.swbg i{display:none;font-style:normal}
+.sw.drag .swbg,.sw.out .swbg{opacity:1}
+.sw.dl .swbg{background:var(--ok);justify-content:flex-end}
+.sw.dl .swbg .r{display:block}
+.sw.dr .swbg{background:var(--bad);justify-content:flex-start}
+.sw.dr .swbg .l{display:block}
+.sw.out{grid-template-rows:0fr;opacity:0;margin-bottom:-8px;pointer-events:none}
+.sw.out.dl .item{translate:-110% 0!important;transition:translate .26s cubic-bezier(.4,0,1,1)!important}
+.sw.out.dr .item{translate:110% 0!important;transition:translate .26s cubic-bezier(.4,0,1,1)!important}
+
+/* сканер штрихкода */
+.cam{position:relative;border-radius:16px;overflow:hidden;background:#000;aspect-ratio:4/3;margin:14px 0 8px}
+.cam video{width:100%;height:100%;object-fit:cover;display:block}
+.cam .aim{position:absolute;left:12%;right:12%;top:30%;bottom:30%;border:2px solid rgba(255,255,255,.85);border-radius:12px;box-shadow:0 0 0 999px rgba(0,0,0,.28);pointer-events:none}
+.scan [data-sc="bar"]{grid-column:1/-1}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--mute);outline-offset:2px}
 
 .dp{display:flex;flex-direction:column}
@@ -216,6 +236,7 @@ input[type="time"]{-webkit-appearance:none;appearance:none}
 <button class="fab" id="fab" type="button" aria-label="Добавить"><span>+</span>Добавить</button>
 <input type="file" id="cam" accept="image/*" capture="environment" hidden>
 <input type="file" id="gal" accept="image/*" hidden>
+<input type="file" id="imp" accept=".json,application/json" hidden>
 <div class="toast" id="toast" role="status"></div>
 <div class="scrim" id="scrim"></div>
 <section class="sheet" id="sheet" aria-hidden="true">
@@ -443,6 +464,7 @@ let filter = 'all';
 let animateIds = new Set();
 let stage = [], scanning = false;
 let currentId = null;
+let swipe = null, swipedAt = 0, pendingImport = null, scanStop = null;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -487,6 +509,7 @@ function row(it, i, now){
     ? `${PLACE[it.place] || 'Продукт'} · до ${fmtDate(it.end)}${it.opened ? ' · вскрыто' : ''}`
     : `Блюдо · с ${fmtDate(it.start)}`) + by;
   return `
+  <div class="sw" data-id="${it.id}"><div class="swin"><span class="swbg" aria-hidden="true"><i class="l">Выбросить</i><i class="r">${(it.qty || 1) > 1 ? 'Съели одну' : 'Съели'}</i></span>
   <button class="item${animateIds.has(it.id) ? ' enter' : ''}" data-id="${it.id}" style="--c:var(--${st});animation-delay:${Math.min(i, 8) * 40}ms">
     <span class="ring">
       <svg viewBox="0 0 52 52" aria-hidden="true">
@@ -499,10 +522,11 @@ function row(it, i, now){
       <span class="name">${esc(it.name)}${it.qty > 1 ? ' <span class="qty">×' + it.qty + '</span>' : ''}</span>
       <span class="info"><span class="st ${st}">${leftText(r)}</span> · ${esc(info)}</span>
     </span>
-  </button>`;
+  </button></div></div>`;
 }
 
 function render(){
+  if(swipe && swipe.on) return;
   const now = Date.now();
   const all = curItems().filter(i => !i.done);
   const items = all.filter(i => filter === 'all' || i.kind === filter).sort((a, b) => a.end - b.end);
@@ -577,6 +601,15 @@ async function patchItem(id, patch, m = mode){
   return true;
 }
 
+// Плавный уход строки: сдвиг в сторону, затем схлопывание. dir < 0 влево (съели), > 0 вправо (выбросили)
+function animateOut(id, dir){
+  const el = [...document.querySelectorAll('.sw')].find(x => x.dataset.id === id);
+  if(!el) return Promise.resolve();
+  el.classList.remove('dl', 'dr');
+  el.classList.add('out', dir < 0 ? 'dl' : 'dr');
+  return new Promise(r => setTimeout(r, 400));
+}
+
 async function eatOne(id){
   const it = curItems().find(i => i.id === id);
   if(!it) return;
@@ -594,8 +627,11 @@ async function removeItem(id, how){
   if(!it) return;
   const m = mode, eat = how === 'eat';
   const msg = (eat ? 'Съедено: ' : 'Выброшено: ') + shortName(it.name);
+  closeSheet();
+  await animateOut(id, eat ? -1 : 1);
   if(m === 'local'){
     const idx = data.items.indexOf(it);
+    if(idx < 0){ render(); return; }
     data.items.splice(idx, 1);
     if(eat) data.eaten++; else data.thrown++;
     save();
@@ -620,11 +656,13 @@ async function removeItem(id, how){
 /* ---------- sheet ---------- */
 const sheet = $('#sheet'), scrim = $('#scrim');
 function openSheet(html){
+  stopScan();
   $('#sheetBody').innerHTML = html;
   sheet.classList.add('open'); scrim.classList.add('open');
   sheet.setAttribute('aria-hidden', 'false');
 }
 function closeSheet(){
+  stopScan();
   stage = [];
   sheet.classList.remove('open'); scrim.classList.remove('open');
   sheet.setAttribute('aria-hidden', 'true');
@@ -724,6 +762,7 @@ function showForm(t){
         <div class="scan" id="scan">
           <button type="button" class="ghost" data-sc="cam">Снять фото</button>
           <button type="button" class="ghost" data-sc="gal">Из галереи</button>
+          <button type="button" class="ghost" data-sc="bar">Штрихкод</button>
         </div>
         <div id="stg" class="stg"></div>
         <div class="field"><label for="pn">Название</label>
@@ -792,6 +831,7 @@ function showForm(t){
     };
     $('#scan').onclick = e => {
       const b = e.target.closest('[data-sc]'); if(!b || scanning) return;
+      if(b.dataset.sc === 'bar'){ openBarcode(); return; }
       $(b.dataset.sc === 'cam' ? '#cam' : '#gal').click();
     };
     pn.oninput = paintSave;
@@ -984,8 +1024,9 @@ function openOpen(id){
     const mk = mode;
     closeSheet();
     if(await patchItem(id, { start: now, end, opened: now }, mk)){
-      if(end === it.end) toast('Срок не изменился: упаковка и так истекает раньше');
-      else toast('Вскрыто. Срок теперь до ' + fmtDate(end), { label: 'Отменить', fn: () => patchItem(id, prev, mk) });
+      const undo = { label: 'Отменить', fn: () => patchItem(id, prev, mk) };
+      if(end === prev.end) toast('Срок не изменился: упаковка и так истекает раньше', undo);
+      else toast('Вскрыто. Срок теперь до ' + fmtDate(end), undo);
     }
   };
 }
@@ -1066,6 +1107,8 @@ function openFridges(){
       ${db ? (pushOn
         ? '<button class="ghost" data-s="pushoff">Отключить уведомления</button>'
         : '<button class="ghost" data-s="pushon">Включить уведомления</button>') : ''}
+      <button class="ghost" data-s="export">Сохранить копию данных</button>
+      <button class="ghost" data-s="import">Загрузить копию данных</button>
       <button class="ghost" data-s="ai">Распознавание по фото</button>
       ${db ? '<button class="ghost" data-s="logout">Выйти из аккаунта</button>' : ''}
       ${installEv ? '<button class="ghost" data-s="install">Установить приложение</button>' : ''}
@@ -1171,6 +1214,10 @@ function shareAction(s){
   else if(s === 'login') signIn();
   else if(s === 'logout') signOutUser();
   else if(s === 'ai') showAiSettings('fridges');
+  else if(s === 'export') exportData();
+  else if(s === 'import') $('#imp').click();
+  else if(s === 'imp-merge') applyImport(false);
+  else if(s === 'imp-replace') applyImport(true);
   else if(s === 'pushon') enablePush();
   else if(s === 'pushoff') disablePush();
   else if(s === 'install' && installEv){ const e = installEv; installEv = null; closeSheet(); e.prompt(); }
@@ -1288,7 +1335,8 @@ function paintStage(){
 function paintScan(){
   document.querySelectorAll('#scan button').forEach(b => {
     b.disabled = scanning;
-    b.textContent = scanning ? 'Распознаю…' : (b.dataset.sc === 'cam' ? 'Снять фото' : 'Из галереи');
+    const lbl = { cam: 'Снять фото', gal: 'Из галереи', bar: 'Штрихкод' };
+    b.textContent = scanning && b.dataset.sc !== 'bar' ? 'Распознаю…' : lbl[b.dataset.sc];
   });
 }
 
@@ -1457,6 +1505,259 @@ async function scanFile(file){
   scanning = false; paintScan(); paintStage();
 }
 
+/* ---------- штрихкод (Open Food Facts) ---------- */
+const BAR_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+function stopScan(){
+  if(scanStop){ const f = scanStop; scanStop = null; f(); }
+}
+let zxingP = null;
+function loadZXing(){
+  if(window.ZXingBrowser) return Promise.resolve(window.ZXingBrowser);
+  if(!zxingP) zxingP = new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
+    el.onload = () => window.ZXingBrowser ? res(window.ZXingBrowser) : rej(new Error('zxing'));
+    el.onerror = () => { zxingP = null; rej(new Error('zxing')); };
+    document.head.appendChild(el);
+  });
+  return zxingP;
+}
+
+async function offName(code){
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 10000);
+  try{
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}?fields=product_name,product_name_ru,generic_name,brands`, { signal: ctl.signal });
+    if(r.status === 404) return '';
+    if(!r.ok) throw new Error('off');
+    const j = await r.json();
+    const p = j && j.product;
+    if(!p) return '';
+    let n = String(p.product_name_ru || p.product_name || p.generic_name || '').trim();
+    if(!n) return '';
+    const b = String(p.brands || '').split(',')[0].trim();
+    if(b && !norm(n).includes(norm(b))) n += ' ' + b;
+    return n.slice(0, 40);
+  }finally{ clearTimeout(t); }
+}
+
+function openBarcode(){
+  openSheet(`
+    <h2 class="sh">Штрихкод</h2>
+    <p class="hint">Наведите камеру на штрихкод. Название подставится из Open Food Facts, срок годности укажете сами.</p>
+    <div class="cam"><video id="bv" playsinline muted></video><i class="aim"></i></div>
+    <p class="hint" id="bs">Запуск камеры…</p>
+    <form id="bf" class="form" style="margin-top:12px" novalidate>
+      <div class="field"><label for="bc">Или введите код вручную</label>
+        <input id="bc" inputmode="numeric" maxlength="14" placeholder="4601234567890" autocomplete="off"></div>
+      <button class="primary">Найти</button>
+      <button type="button" class="ghost" data-a="addback">Назад</button>
+    </form>`);
+  $('#bf').onsubmit = e => {
+    e.preventDefault();
+    const c = $('#bc').value.replace(/\D/g, '');
+    if(c.length < 8){ toast('Введите код полностью: 8–13 цифр'); return; }
+    lookupCode(c);
+  };
+  startScan();
+}
+
+async function startScan(){
+  const v = $('#bv');
+  if(!v) return;
+  const say = t => { const el = $('#bs'); if(el) el.textContent = t; };
+  let dead = false, stream = null, timer = 0;
+  scanStop = () => { dead = true; clearTimeout(timer); if(stream) stream.getTracks().forEach(t => t.stop()); };
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ say('Камера недоступна. Введите код вручную.'); return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+  }catch(e){ if(!dead) say('Нет доступа к камере. Введите код вручную.'); return; }
+  if(dead){ stream.getTracks().forEach(t => t.stop()); return; }
+  v.srcObject = stream;
+  try{ await v.play(); }catch(e){}
+  let det = null, zx = null;
+  if('BarcodeDetector' in window){ try{ det = new BarcodeDetector({ formats: BAR_FORMATS }); }catch(e){ det = null; } }
+  if(!det){
+    try{ const Z = await loadZXing(); zx = new Z.BrowserMultiFormatReader(); }
+    catch(e){ if(!dead) say('Сканер не загрузился. Введите код вручную.'); return; }
+  }
+  if(dead) return;
+  say('Наведите камеру на штрихкод');
+  const cv = document.createElement('canvas');
+  const tick = async () => {
+    if(dead) return;
+    let code = '';
+    try{
+      if(det){
+        const r = await det.detect(v);
+        if(r.length) code = String(r[0].rawValue || '');
+      }else if(v.videoWidth){
+        const k = Math.min(1, 800 / v.videoWidth);
+        cv.width = Math.round(v.videoWidth * k); cv.height = Math.round(v.videoHeight * k);
+        cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+        try{ code = zx.decodeFromCanvas(cv).getText(); }catch(e){}
+      }
+    }catch(e){}
+    if(dead) return;
+    if(/^\d{8,14}$/.test(code)){ lookupCode(code); return; }
+    timer = setTimeout(tick, 220);
+  };
+  tick();
+}
+
+async function lookupCode(code){
+  stopScan();
+  const say = t => { const el = $('#bs'); if(el) el.textContent = t; };
+  say('Ищу в Open Food Facts…');
+  try{
+    const name = await offName(code);
+    if(!$('#bf')) return;                   // окно закрыли, пока шёл поиск
+    openAdd('product');
+    if(name){ $('#pn').value = name; paintSave(); toast('Найдено: ' + name); }
+    else toast('Код ' + code + ' не найден в базе. Введите название вручную.');
+  }catch(e){
+    say('Нет сети или база недоступна. Попробуйте ещё раз.');
+    const bc = $('#bc'); if(bc) bc.value = code;
+  }
+}
+
+/* ---------- резервная копия ---------- */
+const nonNeg = v => Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+
+function exportData(){
+  if(!data.items.length && !data.eaten && !data.thrown){ toast('В «Моём холодильнике» пока нечего сохранять'); return; }
+  const payload = { app: 'svezhest', v: 1, exported: new Date().toISOString(), eaten: data.eaten, thrown: data.thrown, items: data.items };
+  const name = 'svezhest-' + localDate() + '.json';
+  const file = new File([JSON.stringify(payload, null, 1)], name, { type: 'application/json' });
+  const download = () => {
+    const url = URL.createObjectURL(file), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Копия сохранена: ' + name);
+  };
+  if(matchMedia('(pointer:coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })){
+    navigator.share({ files: [file], title: 'Копия «Свежести»' })
+      .then(() => toast('Копия готова'))
+      .catch(e => { if(!e || e.name !== 'AbortError') download(); });
+  }else download();
+}
+
+function cleanImport(o){
+  const arr = Array.isArray(o) ? o : (o && Array.isArray(o.items) ? o.items : []);
+  const seen = new Set(), out = [];
+  for(const x of arr.slice(0, 1000)){
+    if(!validItem(x) || !Number.isFinite(x.start) || !Number.isFinite(x.end)) continue;
+    const name = x.name.trim().slice(0, 60);
+    if(!name) continue;
+    const id = typeof x.id === 'string' && x.id && x.id.length <= 40 && !seen.has(x.id) ? x.id : newId();
+    seen.add(id);
+    const it = {
+      id, kind: x.kind, name,
+      place: ['fridge', 'freezer', 'shelf'].includes(x.place) ? x.place : null,
+      start: x.start, end: x.end,
+      qty: Math.min(99, Math.max(1, Math.round(Number(x.qty)) || 1))
+    };
+    if(Number.isFinite(x.opened)) it.opened = x.opened;
+    out.push(it);
+  }
+  return out;
+}
+
+function showImport(){
+  if(!pendingImport) return;
+  const n = pendingImport.list.length, has = data.items.length > 0;
+  openSheet(`
+    <h2 class="sh">Загрузить копию</h2>
+    <p class="hint">В файле: ${n} ${plural(n, ['запись', 'записи', 'записей'])}. Они попадут в «Мой холодильник» на этом устройстве.</p>
+    <div class="actions">
+      <button class="primary" data-s="imp-merge">${has ? 'Добавить к текущим' : 'Загрузить'}</button>
+      ${has ? `<button class="ghost" data-s="imp-replace">Заменить текущие (${data.items.length})</button>` : ''}
+      <button class="ghost" data-s="back">Отмена</button>
+    </div>`);
+}
+
+function applyImport(replace){
+  if(!pendingImport) return;
+  const { list, eaten, thrown } = pendingImport;
+  pendingImport = null;
+  let added = list.length;
+  if(replace){
+    data.items = list; data.eaten = eaten; data.thrown = thrown;
+  }else{
+    const ids = new Set(data.items.map(i => i.id));
+    const fresh = list.filter(it => !ids.has(it.id));
+    added = fresh.length;
+    data.items.push(...fresh);
+    data.eaten = Math.max(data.eaten, eaten); data.thrown = Math.max(data.thrown, thrown);
+  }
+  save();
+  closeSheet();
+  if(isShared()) switchTo('local'); else render();
+  toast('Загружено: ' + added + ' ' + plural(added, ['запись', 'записи', 'записей']));
+}
+
+$('#imp').onchange = async e => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if(!f) return;
+  try{
+    if(f.size > 5e6) throw new Error('big');
+    const o = JSON.parse(await f.text());
+    const list = cleanImport(o);
+    if(!list.length){ toast('В файле не нашлось продуктов'); return; }
+    pendingImport = { list, eaten: nonNeg(o && o.eaten), thrown: nonNeg(o && o.thrown) };
+    showImport();
+  }catch(err){ toast('Не удалось прочитать файл копии'); }
+};
+
+/* ---------- свайпы по строке: влево «Съели», вправо «Выбросить» ---------- */
+const SW_MIN = 80;
+const swWrap = el => el.closest('.sw');
+function springBack(it){
+  const w = swWrap(it);
+  it.style.transition = '';
+  it.style.translate = '';
+  if(w){ w.classList.remove('drag'); setTimeout(() => { if(!w.classList.contains('out')) w.classList.remove('dl', 'dr'); }, 280); }
+}
+$('#list').addEventListener('pointerdown', e => {
+  const it = e.target.closest('.item');
+  if(!it || (isShared() && !canWrite) || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  if(swWrap(it).classList.contains('out')) return;
+  swipe = { it, id: it.dataset.id, x0: e.clientX, y0: e.clientY, dx: 0, on: false, pid: e.pointerId };
+});
+$('#list').addEventListener('pointermove', e => {
+  if(!swipe || e.pointerId !== swipe.pid) return;
+  const dx = e.clientX - swipe.x0, dy = e.clientY - swipe.y0;
+  if(!swipe.on){
+    if(Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)){ swipe = null; return; }
+    if(Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    swipe.on = true;
+    try{ swipe.it.setPointerCapture(e.pointerId); }catch(_){}
+    swipe.it.style.transition = 'none';
+  }
+  swipe.dx = dx;
+  const w = swWrap(swipe.it);
+  w.classList.add('drag');
+  w.classList.toggle('dl', dx < 0);
+  w.classList.toggle('dr', dx > 0);
+  swipe.it.style.translate = dx + 'px 0';
+});
+function swipeEnd(e, cancel){
+  if(!swipe || e.pointerId !== swipe.pid) return;
+  const s = swipe;
+  swipe = null;
+  if(!s.on) return;
+  swipedAt = Date.now();
+  const far = Math.abs(s.dx) >= Math.max(SW_MIN, (s.it.offsetWidth || 300) * 0.28);
+  if(cancel || !far){ springBack(s.it); return; }
+  if(s.dx < 0){
+    const it = curItems().find(i => i.id === s.id);
+    if(it && (it.qty || 1) > 1){ springBack(s.it); eatOne(s.id); }
+    else removeItem(s.id, 'eat');
+  }else removeItem(s.id, 'bin');
+}
+$('#list').addEventListener('pointerup', e => swipeEnd(e, false));
+$('#list').addEventListener('pointercancel', e => swipeEnd(e, true));
+
 /* ---------- push-уведомления ---------- */
 const VAPID_KEY = "BDI8OytB86b46tRDYx8kU9hT5XjOh6WEpEv3Fq2rJpK17Hpn858k8e0PmjBWXzyCHhPy7SGox6bmmbCruBm5IEc";
 const PUSH_KEY = 'svezhest-push';
@@ -1518,6 +1819,7 @@ async function refreshPush(){
 /* ---------- wiring ---------- */
 $('#fab').onclick = () => openAdd('product');
 $('#list').onclick = e => {
+  if(Date.now() - swipedAt < 450) return;
   const b = e.target.closest('.item');
   if(b) openItem(b.dataset.id);
 };
@@ -1534,6 +1836,7 @@ $('#sheetBody').onclick = e => {
   else if(a === 'edit') openEdit(currentId);
   else if(a === 'open') openOpen(currentId);
   else if(a === 'back') openItem(currentId);
+  else if(a === 'addback') openAdd('product');
   else if(a === 'eat' || a === 'bin') removeItem(currentId, a === 'eat' ? 'eat' : 'bin');
   const sw = e.target.closest('[data-sw]');
   if(sw){ closeSheet(); if(sw.dataset.sw !== mode) switchTo(sw.dataset.sw); return; }
